@@ -101,12 +101,14 @@ src/
   stats.h           帧时间统计（纯计算）
   sysinfo.h/cpp     CPU / GPU / 内存采样
   overlay.h/cpp     置顶透明窗口 + Direct2D 绘制
+  app.rc / app.ico  应用图标（托盘 / 窗口 / exe 共用，资源 ID 1）
 tools/
   probe.cpp         枚举 DXGI provider 的全部事件
   etwtest.cpp       验证事件 ID 与帧数的一一对应关系
   minitest.cpp      隔离测试采集层
   shot.cpp          屏幕截取（调试用）
   mkshortcut.cpp    创建快捷方式（安全策略禁用 COM 时的备选）
+  mkicon.py         生成 app.ico（纯标准库，SDF 抗锯齿，多尺寸独立渲染）
 ```
 
 ## 许可

@@ -32,6 +32,7 @@ public:
 
 private:
     void EnsureSurface(int w, int h);
+    bool CreateDeviceObjects();
     void ReleaseDeviceObjects();
     void Reposition();
 

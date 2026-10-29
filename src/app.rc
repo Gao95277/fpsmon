@@ -1,0 +1,2 @@
+// app.rc - 应用图标（资源 ID 1，托盘 / 窗口 / exe 共用）
+1 ICON "app.ico"

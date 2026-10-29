@@ -27,6 +27,9 @@ bool Overlay::Create(HINSTANCE hInst)
     wc.lpfnWndProc = OverlayProc;
     wc.hInstance = hInst;
     wc.hCursor = nullptr;
+    wc.hIcon = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE);
+    wc.hIconSm = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON,
+                                  GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CXSMICON), 0);
     wc.lpszClassName = kClass;
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
 
@@ -48,32 +51,7 @@ bool Overlay::Create(HINSTANCE hInst)
                         reinterpret_cast<IUnknown**>(&dwrite_));
     if (!d2d_ || !dwrite_) return false;
 
-    D2D1_RENDER_TARGET_PROPERTIES rtp = D2D1::RenderTargetProperties(
-        D2D1_RENDER_TARGET_TYPE_DEFAULT,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-        96.0f, 96.0f);
-    if (FAILED(d2d_->CreateDCRenderTarget(&rtp, &rt_))) return false;
-
-    rt_->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 0.62f), &bgBrush_);
-    rt_->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 1.0f), &numBrush_);
-    rt_->CreateSolidColorBrush(D2D1::ColorF(0.72f, 0.74f, 0.78f, 1.0f), &lblBrush_);
-
-    dwrite_->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
-                              DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-                              14.5f * scale_, L"", &fmtNum_);
-    dwrite_->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-                              DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-                              11.5f * scale_, L"", &fmtLbl_);
-    if (fmtNum_) {
-        fmtNum_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-        fmtNum_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        fmtNum_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);   // 横条只有一行，禁止折行
-    }
-    if (fmtLbl_) {
-        fmtLbl_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-        fmtLbl_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        fmtLbl_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    }
+    if (!CreateDeviceObjects()) return false;
 
     EnsureSurface(winW_, winH_);
     Reposition();
@@ -136,9 +114,45 @@ void Overlay::SetVisible(bool v)
 
 void Overlay::ToggleVisible() { SetVisible(!visible_); }
 
+// 渲染目标与画笔/字体的创建。设备丢失（EndDraw 失败）后整体重建。
+bool Overlay::CreateDeviceObjects()
+{
+    if (!d2d_ || !dwrite_) return false;
+
+    D2D1_RENDER_TARGET_PROPERTIES rtp = D2D1::RenderTargetProperties(
+        D2D1_RENDER_TARGET_TYPE_DEFAULT,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        96.0f, 96.0f);
+    if (rt_) { rt_->Release(); rt_ = nullptr; }
+    if (FAILED(d2d_->CreateDCRenderTarget(&rtp, &rt_))) return false;
+
+    rt_->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 0.62f), &bgBrush_);
+    rt_->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 1.0f), &numBrush_);
+    rt_->CreateSolidColorBrush(D2D1::ColorF(0.72f, 0.74f, 0.78f, 1.0f), &lblBrush_);
+
+    dwrite_->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                              DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                              14.5f * scale_, L"", &fmtNum_);
+    dwrite_->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+                              DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                              11.5f * scale_, L"", &fmtLbl_);
+    if (fmtNum_) {
+        fmtNum_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+        fmtNum_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        fmtNum_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);   // 横条只有一行，禁止折行
+    }
+    if (fmtLbl_) {
+        fmtLbl_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        fmtLbl_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        fmtLbl_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    }
+    return rt_ && bgBrush_ && numBrush_ && lblBrush_ && fmtNum_ && fmtLbl_;
+}
+
 void Overlay::Render(const OverlayValues& v)
 {
-    if (!hwnd_ || !rt_ || !visible_) return;
+    if (!hwnd_ || !visible_) return;
+    if (!rt_ && !CreateDeviceObjects()) return;   // 设备丢失后在这里恢复
     EnsureSurface(winW_, winH_);
     if (!bmp_ || !memDC_) return;
 
@@ -213,7 +227,12 @@ void Overlay::Render(const OverlayValues& v)
                        D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
     }
 
-    rt_->EndDraw();
+    if (FAILED(rt_->EndDraw())) {
+        // 设备丢失（驱动重置/远程会话切换）：销毁渲染目标，下个 tick 重建重画
+        ReleaseDeviceObjects();
+        CreateDeviceObjects();
+        return;
+    }
 
     POINT ptDst{};
     SIZE  sz{ winW_, winH_ };

@@ -16,11 +16,13 @@ NOTE="${2:-版本 $VER}"
 SEVENZIP="/c/MingSoftware/7-Zip/7z.exe"
 GH="/c/Program Files/GitHub CLI/gh.exe"
 
-echo "[1/6] 编译"
+echo "[1/6] 编译 (CMake，含图标资源)"
 taskkill //F //IM fpsmon.exe >/dev/null 2>&1 || true
 sleep 1
-bash build.sh -O2 -Fe:build/fpsmon.exe -Fo:build/ \
-    src/main.cpp src/overlay.cpp src/frame_source.cpp src/sysinfo.cpp
+CMAKE="/c/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe"
+"$CMAKE" -S . -B build -A x64 >/dev/null
+"$CMAKE" --build build --config Release
+cp build/Release/fpsmon.exe build/fpsmon.exe
 
 echo "[2/6] 更新 dist"
 mkdir -p dist

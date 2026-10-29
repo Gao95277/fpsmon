@@ -63,6 +63,7 @@ static int          g_tick = 0;
 static bool         g_debug = false;
 static bool         g_followAny = false;   // 调试用：不跟随前台，改为跟随帧数最多的进程
 static NOTIFYICONDATAW g_nid{};
+static UINT g_taskbarCreated = 0;  // Explorer 重启广播，收到后重建托盘图标
 
 // 每条日志独立开关文件，保证运行中随时可读
 static void LogLine(const char* s)
@@ -87,7 +88,10 @@ static void AddTrayIcon(HWND hwnd)
     g_nid.uID = 1;
     g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_nid.uCallbackMessage = WM_TRAYMSG;
-    g_nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    // 优先用 exe 内嵌的应用图标（小尺寸入口保证托盘里清晰）；没有资源时退回系统图标
+    g_nid.hIcon = (HICON)LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1), IMAGE_ICON,
+                                    GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CXSMICON), 0);
+    if (!g_nid.hIcon) g_nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     wcscpy_s(g_nid.szTip, L"FPS 监控");
     Shell_NotifyIconW(NIM_ADD, &g_nid);
 }
@@ -216,6 +220,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmdLine, int)
     }
     if (cmdLine && wcsstr(cmdLine, L"--follow-any")) g_followAny = true;
 
+    g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
+
     if (!g_overlay.Create(hInst)) return 1;
     HWND hwnd = g_overlay.Hwnd();
 
@@ -253,6 +259,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmdLine, int)
         if (msg.hwnd == hwnd && msg.message == WM_TRAYMSG) {
             if (msg.lParam == WM_RBUTTONUP || msg.lParam == WM_CONTEXTMENU) ShowTrayMenu(hwnd);
             else if (msg.lParam == WM_LBUTTONDBLCLK) g_overlay.ToggleVisible();
+            continue;
+        }
+        if (msg.hwnd == hwnd && g_taskbarCreated && msg.message == g_taskbarCreated) {
+            // Explorer 崩溃/重启会清空托盘；不重建的话程序还活着但没有任何入口
+            RemoveTrayIcon();
+            AddTrayIcon(hwnd);
             continue;
         }
         TranslateMessage(&msg);

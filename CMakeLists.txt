@@ -9,6 +9,7 @@ add_executable(fpsmon WIN32
     src/overlay.cpp
     src/frame_source.cpp
     src/sysinfo.cpp
+    src/app.rc
 )
 
 target_include_directories(fpsmon PRIVATE src)
@@ -30,4 +31,6 @@ if (MSVC)
     set_target_properties(fpsmon PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
     )
+    # app.rc 里用相对路径引用 app.ico，rc.exe 以构建目录为工作目录，需要把 src 加进搜索路径
+    set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} /I\"${CMAKE_CURRENT_SOURCE_DIR}/src\"")
 endif()
