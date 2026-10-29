@@ -1,4 +1,5 @@
 build/
+pack/
 out/
 *.obj
 *.exe
@@ -10,3 +11,7 @@ out/
 .vscode/
 CMakeCache.txt
 CMakeFiles/
+
+# 发布产物需要提交：编译好的 exe 和绿色版压缩包
+!dist/fpsmon.exe
+!dist/*.zip

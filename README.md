@@ -43,6 +43,15 @@ Microsoft-Windows-DXGI provider, EventID 42
 - **缓冲必须 64KB**。实测 8KB 会丢掉一半事件（60fps 被读成 30fps），这是 ETW 实时模式的固有行为。
 - **显示层鼠标穿透**：`WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW`，窗口过程里 `WM_NCHITTEST` 直接返回 `HTTRANSPARENT`，双保险。
 
+## 直接使用（不用编译）
+
+仓库的 `dist/` 目录里放了现成的构建产物：
+
+- **`dist/fpsmon.exe`** — 单个可执行文件，双击就能跑
+- **`dist/FpsMon-v1.0.0.zip`** — 绿色版压缩包，解压到任意位置即可，不写注册表、不留残留
+
+也可以在 [Releases](https://github.com/Gao95277/fpsmon/releases) 页面下载。
+
 ## 构建
 
 需要 Visual Studio 2019+ 和 Windows 10 SDK。
