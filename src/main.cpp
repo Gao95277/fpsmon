@@ -23,6 +23,8 @@
 #define TIMER_TICK_ID   1
 #define TICK_MS         200
 
+static const wchar_t* kTrayClass = L"FpsMonTrayWnd";
+
 static const wchar_t* kRunKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 static const wchar_t* kRunName = L"FpsMon";
 
@@ -64,6 +66,7 @@ static bool         g_debug = false;
 static bool         g_followAny = false;   // 调试用：不跟随前台，改为跟随帧数最多的进程
 static NOTIFYICONDATAW g_nid{};
 static UINT g_taskbarCreated = 0;  // Explorer 重启广播，收到后重建托盘图标
+static HWND g_msgHwnd = nullptr;   // 隐藏普通窗口：托盘回调 / 菜单所有者 / 刷新定时器
 
 // 每条日志独立开关文件，保证运行中随时可读
 static void LogLine(const char* s)
@@ -208,6 +211,26 @@ static void OnTick()
     }
 }
 
+// 托盘回调 / 刷新定时器 / TaskbarCreated 全部挂在这个隐藏的普通窗口上。
+// 不能用显示层窗口承担这些角色：它带 NOACTIVATE|TRANSPARENT，
+// SetForegroundWindow 不可靠，TrackPopupMenu 弹出的菜单会被立即收起（表现为右键没反应）。
+static LRESULT CALLBACK TrayWndProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
+{
+    if (m == WM_TRAYMSG) {
+        if (lp == WM_RBUTTONUP || lp == WM_CONTEXTMENU) ShowTrayMenu(h);
+        else if (lp == WM_LBUTTONDBLCLK) g_overlay.ToggleVisible();
+        return 0;
+    }
+    if (m == WM_TIMER && wp == TIMER_TICK_ID) { OnTick(); return 0; }
+    if (g_taskbarCreated && m == g_taskbarCreated) {
+        // Explorer 崩溃/重启会清空托盘；不重建的话程序还活着但没有任何入口
+        RemoveTrayIcon();
+        AddTrayIcon(h);
+        return 0;
+    }
+    return DefWindowProcW(h, m, wp, lp);
+}
+
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmdLine, int)
 {
     HANDLE mtx = CreateMutexW(nullptr, TRUE, L"FpsMon_SingleInstance_v1");
@@ -223,7 +246,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmdLine, int)
     g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
 
     if (!g_overlay.Create(hInst)) return 1;
-    HWND hwnd = g_overlay.Hwnd();
+
+    WNDCLASSEXW twc{ sizeof(twc) };
+    twc.lpfnWndProc = TrayWndProc;
+    twc.hInstance = hInst;
+    twc.lpszClassName = kTrayClass;
+    if (!RegisterClassExW(&twc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return 1;
+    g_msgHwnd = CreateWindowExW(0, kTrayClass, L"", WS_POPUP, 0, 0, 0, 0,
+                                nullptr, nullptr, hInst, nullptr);
+    if (!g_msgHwnd) return 1;
 
     std::wstring err;
     bool started = FrameSource::Instance().Start(err);
@@ -246,36 +277,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmdLine, int)
         MessageBoxW(nullptr, msg.c_str(), L"FPS 监控", MB_ICONWARNING | MB_OK);
     }
 
-    AddTrayIcon(hwnd);
-    SetTimer(hwnd, TIMER_TICK_ID, TICK_MS, nullptr);
+    AddTrayIcon(g_msgHwnd);
+    SetTimer(g_msgHwnd, TIMER_TICK_ID, TICK_MS, nullptr);
 
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0)) {
-        // 显示层与托盘的消息在主循环里直接处理，不进入窗口过程
-        if (msg.hwnd == hwnd && msg.message == WM_TIMER && msg.wParam == TIMER_TICK_ID) {
-            OnTick();
-            continue;
-        }
-        if (msg.hwnd == hwnd && msg.message == WM_TRAYMSG) {
-            if (msg.lParam == WM_RBUTTONUP || msg.lParam == WM_CONTEXTMENU) ShowTrayMenu(hwnd);
-            else if (msg.lParam == WM_LBUTTONDBLCLK) g_overlay.ToggleVisible();
-            continue;
-        }
-        if (msg.hwnd == hwnd && g_taskbarCreated && msg.message == g_taskbarCreated) {
-            // Explorer 崩溃/重启会清空托盘；不重建的话程序还活着但没有任何入口
-            RemoveTrayIcon();
-            AddTrayIcon(hwnd);
-            continue;
-        }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
 
-    KillTimer(hwnd, TIMER_TICK_ID);
+    KillTimer(g_msgHwnd, TIMER_TICK_ID);
     RemoveTrayIcon();
     FrameSource::Instance().Stop();
     g_sys.Shutdown();
     g_overlay.Destroy();
+    DestroyWindow(g_msgHwnd);
     if (mtx) CloseHandle(mtx);
     return 0;
 }
